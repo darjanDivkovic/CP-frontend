@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+body {
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+@font-face {
+  font-family: 'Givonic';
+  src: url('./assets/fonts/Givonic-Bold.woff') format('woff2'),
+       url('./assets/fonts/Givonic-Bold.woff2') format('woff');
+  font-weight: 700;          
+  font-style: bold;
+  font-display: swap;        
+}
+
+h1 {
+  font-family: 'Givonic', sans-serif;
+}
+
+p, input {
+  font-family: 'Roboto', sans-serif;
+}
