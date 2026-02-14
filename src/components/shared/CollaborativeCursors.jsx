@@ -5,31 +5,33 @@ const ColaborativeCursors = ({ remoteUsers }) => {
   const [messagesByUser, setMessagesByUser] = useState({});
   const timersRef = useRef({});
 
-  // local "my cursor" position (so we can anchor input next to it)
   const [myCursor, setMyCursor] = useState({ x: 0, y: 0 });
-
-  // message composer state
   const [isComposing, setIsComposing] = useState(false);
   const [draft, setDraft] = useState("");
   const inputRef = useRef(null);
 
-  // ✅ listen to remote messages
+  // ✅ helper: show message for 10s (resets if called again)
+  const showMessageForUser = useCallback((id, message) => {
+    if (!id || !message) return;
+
+    setMessagesByUser((prev) => ({ ...prev, [id]: message }));
+
+    if (timersRef.current[id]) clearTimeout(timersRef.current[id]);
+
+    timersRef.current[id] = setTimeout(() => {
+      setMessagesByUser((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      delete timersRef.current[id];
+    }, 10_000);
+  }, []);
+
+  // ✅ listen to messages from others
   useEffect(() => {
     const onReceiveMessage = ({ id, message }) => {
-      if (!id || !message) return;
-
-      setMessagesByUser((prev) => ({ ...prev, [id]: message }));
-
-      if (timersRef.current[id]) clearTimeout(timersRef.current[id]);
-
-      timersRef.current[id] = setTimeout(() => {
-        setMessagesByUser((prev) => {
-          const next = { ...prev };
-          delete next[id];
-          return next;
-        });
-        delete timersRef.current[id];
-      }, 5_000);
+      showMessageForUser(id, message);
     };
 
     socket.on("receive-message", onReceiveMessage);
@@ -39,20 +41,13 @@ const ColaborativeCursors = ({ remoteUsers }) => {
       Object.values(timersRef.current).forEach(clearTimeout);
       timersRef.current = {};
     };
-  }, []);
+  }, [showMessageForUser]);
 
-  // ✅ track my cursor position in the viewport (for placing the input)
+  // track my cursor for placing input
   useEffect(() => {
-    const onMouseMove = (e) => {
-      setMyCursor({ x: e.clientX, y: e.clientY });
-    };
+    const onMouseMove = (e) => setMyCursor({ x: e.clientX, y: e.clientY });
     window.addEventListener("mousemove", onMouseMove, { passive: true });
     return () => window.removeEventListener("mousemove", onMouseMove);
-  }, []);
-
-  const openComposer = useCallback(() => {
-    setIsComposing(true);
-    setDraft("");
   }, []);
 
   const closeComposer = useCallback(() => {
@@ -60,50 +55,42 @@ const ColaborativeCursors = ({ remoteUsers }) => {
     setDraft("");
   }, []);
 
-  // ✅ Ctrl+K to open, Esc to close
+  // Ctrl/Cmd+K open, Esc close
   useEffect(() => {
     const onKeyDown = (e) => {
       const isCtrlK = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k";
       if (isCtrlK) {
         e.preventDefault();
-        setIsComposing((prev) => {
-          // toggle
-          const next = !prev;
-          return next;
-        });
-        // reset draft whenever opening
+        setIsComposing((prev) => !prev);
         setDraft("");
         return;
       }
-
-      if (e.key === "Escape") {
-        closeComposer();
-      }
+      if (e.key === "Escape") closeComposer();
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closeComposer]);
 
-  // ✅ focus input when opened
   useEffect(() => {
-    if (isComposing) {
-      // small delay ensures it exists in DOM
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
+    if (isComposing) requestAnimationFrame(() => inputRef.current?.focus());
   }, [isComposing]);
 
   const sendMessage = useCallback(() => {
     const msg = draft.trim();
     if (!msg) return;
 
+    // ✅ show my own message too
+    showMessageForUser(socket.id, msg);
+
+    // ✅ send to server for everyone else
     socket.emit("send-message", { message: msg });
+
     closeComposer();
-  }, [draft, closeComposer]);
+  }, [draft, closeComposer, showMessageForUser]);
 
   return (
     <>
-      {/* Remote cursors */}
       {remoteUsers.map((user) => (
         <div
           key={user.id}
@@ -138,14 +125,22 @@ const ColaborativeCursors = ({ remoteUsers }) => {
         </div>
       ))}
 
-      {/* My message input (Ctrl+K) */}
+      {/* ✅ my own message bubble (since my cursor isn't in remoteUsers) */}
+      {messagesByUser[socket.id] && (
+        <div
+          className="fixed z-[9999] pointer-events-none"
+          style={{ left: myCursor.x + 14, top: myCursor.y + 44 }}
+        >
+          <div className="text-xs px-2 py-1 rounded-lg text-white bg-black/80 shadow-md whitespace-nowrap">
+            {messagesByUser[socket.id]}
+          </div>
+        </div>
+      )}
+
       {isComposing && (
         <div
           className="fixed z-[9999]"
-          style={{
-            left: myCursor.x + 14,
-            top: myCursor.y + 14,
-          }}
+          style={{ left: myCursor.x + 14, top: myCursor.y + 14 }}
         >
           <input
             ref={inputRef}
